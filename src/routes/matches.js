@@ -12,12 +12,12 @@ const MAX_LIMIT = 100;
 matchRouter.get('/', async (req, res) => {
     const parsed = listMatchesQuerySchema.safeParse(req.query);
 
-    if(!parsed.success)
-        return res.status(400).json({ error : "Invalid query.", details: JSON.stringify(parsed.error)});
+    if (!parsed.success)
+        return res.status(400).json({ error: "Invalid query.", details: parsed.error.issues });
 
     const limit = Math.min(parsed.data.limit ?? 50, MAX_LIMIT);
 
-    try{
+    try {
         const data = await db
             .select()
             .from(matches)
@@ -26,7 +26,7 @@ matchRouter.get('/', async (req, res) => {
 
         res.json({ data });
     } catch (e) {
-        res.status(500).json({ error: "Failed to fetch matches", details: JSON.stringify(e)})
+        res.status(500).json({ error: "Failed to fetch matches", details: JSON.stringify(e) })
     }
 });
 
@@ -34,23 +34,27 @@ matchRouter.post('/', async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body);
 
     if (!parsed.success) {
-        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.issues });
     }
 
     const { startTime, endTime, homeScore, awayScore, ...rest } = parsed.data;
 
-    try{
+    try {
         const [event] = await db.insert(matches).values({
             ...rest,
             startTime: new Date(startTime),
-            endTime:   new Date(endTime), 
+            endTime: new Date(endTime),
             homeScore: homeScore ?? 0,
             awayScore: awayScore ?? 0,
             status: getMatchStatus(startTime, endTime),
         }).returning();
 
-        res.status(201).json({ data : event });
-    } catch(e) {
-        res.status(500).json({ error : 'Failed to create match', details: JSON.stringify(e)});
+        if(res.app.locals.broadcastMatchCreated){
+            res.app.locals.broadcastMatchCreated(event);
+        }
+
+        res.status(201).json({ data: event });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to create match', details: JSON.stringify(e) });
     }
 })
